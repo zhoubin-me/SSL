@@ -109,6 +109,7 @@ class Trainer:
                 self.save("best")
             if (epoch + 1) % self.cfg.epoch_ckpt_freq == 0:
                 self.save(f"e{epoch:03d}")
+                self.reconstruct()
             print(f"Epoch {epoch:3d}, Train Loss: {train_loss:6.5f}, Val Loss: {val_loss:6.5f}")
 
     def save(self, fname):
@@ -122,11 +123,9 @@ class Trainer:
             }, f"{self.ckpt}/{fname}.pth.tar"
         )
 
-    def load(self, ckpt=None):
-        if ckpt is None:
-            ckpt = self.cfg.load_ckpt
-        if os.path.exists(ckpt):
-            data = torch.load(ckpt)
+    def load(self):
+        if os.path.exists(self.cfg.load_ckpt):
+            data = torch.load(self.cfg.load_ckpt)
             self.model.module.load_state_dict(data['model'])
             self.optimizer.load_state_dict(data['optimizer'])
         else:
@@ -172,7 +171,7 @@ class Trainer:
             print(f"Probing Epoch {epoch:3d}, Train Acc:{train_acc:.4f} Loss:{train_loss:.4f}\t"
                   f"Val Acc: {val_acc:.4f} Loss {val_loss:.4f}")
 
-    def decode(self):
+    def reconstruct(self):
         path = os.path.join("imgs", self.prefix)
         if self.epoch == 0:
             path = os.path.join(path, 'best')
@@ -180,7 +179,7 @@ class Trainer:
             path = os.path.join(path, f'e{self.epoch:03d}')
         if not os.path.exists(path):
             os.makedirs(path)
-        self.model.eval()
+
         for i, (x, _) in enumerate(self.val_loader):
             with torch.no_grad():
                 x = x.cuda()
@@ -195,14 +194,13 @@ class Trainer:
     def tsne(self):
         data = []
         for idx, (x, y) in enumerate(self.val_loader):
-            with torch.no_grad():
-                z = self.model.module.encode(x.cuda())
-                data.append((z.cpu(), y))
+            z = self.model.module.encode(x.cuda())
+            data.append((z.cpu(), y))
             if idx > 10:
                 break
 
         xx = torch.cat(list(x[0] for x in data), dim=0)
-        yy = torch.cat(list(x[1] for x in data), dim=0)
+        yy = torch.cat(list(x[1] for x in data), dim=1)
         xx = xx.view(xx.size(0), -1)
 
         tsne = TSNE(n_components=2, verbose=True, perplexity=40, n_iter=1000, learning_rate='auto')
@@ -210,7 +208,10 @@ class Trainer:
 
         plt.figure(figsize=(12, 8))
         plt.scatter(xxx[:, 0], xxx[:, 1], c=yy, cmap=plt.cm.get_cmap('Set1'))
-        plt.savefig(f"imgs/{self.prefix}.png")
+        path = os.path.join("imgs", self.prefix)
+        if not os.path.exists(path):
+            os.mkdir(path)
+        plt.savefig(os.path.join(path, 'tsne.png'))
 
     def run(self):
         if self.cfg.task == 'train':
@@ -225,7 +226,7 @@ class Trainer:
             self.tsne()
         elif self.cfg.task == 'decode':
             self.load()
-            self.decode()
+            self.reconstruct()
         else:
             raise ValueError("No such task", self.cfg.task)
 

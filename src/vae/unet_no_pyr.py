@@ -4,11 +4,10 @@ import torch.nn.functional as F
 from torch.distributions import Normal
 from einops import rearrange
 
-
 class UNet(nn.Module):
     def __init__(self, z_size=128, in_size=32, blk='basic', loss_fn='mse'):
         super(UNet, self).__init__()
-        features = 8
+        features = 3
         out_channels = {
             'mse': 3,
             'ce': 256 * 3,
@@ -25,16 +24,16 @@ class UNet(nn.Module):
         self.encoder3 = UNet._block(features * 2, features * 4, name="enc3")
         self.encoder4 = UNet._block(features * 4, features * 8, name="enc4")
         self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
-        self.bottleneck = UNet._block(features * 8, features * 4, name="bottleneck")
+        self.bottleneck = UNet._block(features * 8, features * 16, name="bottleneck")
 
-        self.upconv4 = nn.ConvTranspose2d(features * 4, features * 8, kernel_size=2, stride=2)
-        self.decoder4 = UNet._block((features * 8) * 2, features * 8, name="dec4")
+        self.upconv4 = nn.ConvTranspose2d(features * 16, features * 8, kernel_size=2, stride=2)
+        self.decoder4 = UNet._block((features * 8), features * 8, name="dec4")
         self.upconv3 = nn.ConvTranspose2d(features * 8, features * 4, kernel_size=2, stride=2)
-        self.decoder3 = UNet._block((features * 4) * 2, features * 4, name="dec3")
+        self.decoder3 = UNet._block((features * 4), features * 4, name="dec3")
         self.upconv2 = nn.ConvTranspose2d(features * 4, features * 2, kernel_size=2, stride=2)
-        self.decoder2 = UNet._block((features * 2) * 2, features * 2, name="dec2")
+        self.decoder2 = UNet._block((features * 2), features * 2, name="dec2")
         self.upconv1 = nn.ConvTranspose2d(features * 2, features, kernel_size=2, stride=2)
-        self.decoder1 = UNet._block(features * 2, features, name="dec1")
+        self.decoder1 = UNet._block(features, features, name="dec1")
 
         self.conv = nn.Conv2d(in_channels=features, out_channels=self.out_c, kernel_size=1)
 
@@ -46,15 +45,14 @@ class UNet(nn.Module):
         z = self.bottleneck(self.pool(enc4))
 
         dec4 = self.upconv4(z)
-        dec4 = self.decoder4(torch.cat((dec4, enc4), dim=1))
+        dec4 = self.decoder4(dec4)
         dec3 = self.upconv3(dec4)
-        dec3 = self.decoder3(torch.cat((dec3, enc3), dim=1))
+        dec3 = self.decoder3(dec3)
         dec2 = self.upconv2(dec3)
-        dec2 = self.decoder2(torch.cat((dec2, enc2), dim=1))
+        dec2 = self.decoder2(dec2)
         dec1 = self.upconv1(dec2)
-        dec1 = self.decoder1(torch.cat((dec1, enc1), dim=1))
+        dec1 = self.decoder1(dec1)
         out = self.conv(dec1)
-
 
         if self.loss_fn == 'mse':
             y = F.sigmoid(out)
@@ -73,11 +71,9 @@ class UNet(nn.Module):
             y = y / 2 + 0.5
         else:
             raise ValueError("No such loss function", self.loss_fn)
- 
 
-        zs = [enc1, enc2, enc3, enc4, z]
-        zx = torch.cat([x_.flatten(1) for x_ in zs], dim=1)
-        return y, zx, loss
+        z = z.flatten(1)
+        return y, z, loss
 
     def encode(self, x):
         enc1 = self.encoder1(x)
@@ -85,10 +81,8 @@ class UNet(nn.Module):
         enc3 = self.encoder3(self.pool(enc2))
         enc4 = self.encoder4(self.pool(enc3))
         z = self.bottleneck(self.pool(enc4))
-
-        zs = [enc1, enc2, enc3, enc4, z]
-        out = torch.cat([x_.flatten(1) for x_ in zs], dim=1)
-        return out
+        z = z.flatten(1)
+        return z
 
     @staticmethod
     def _block(in_channels, features, name=None):

@@ -8,7 +8,7 @@ from einops import rearrange
 class UNet(nn.Module):
     def __init__(self, z_size=128, in_size=32, blk='basic', loss_fn='mse'):
         super(UNet, self).__init__()
-        features = 8
+        features = 3
         out_channels = {
             'mse': 3,
             'ce': 256 * 3,
@@ -25,9 +25,9 @@ class UNet(nn.Module):
         self.encoder3 = UNet._block(features * 2, features * 4, name="enc3")
         self.encoder4 = UNet._block(features * 4, features * 8, name="enc4")
         self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
-        self.bottleneck = UNet._block(features * 8, features * 4, name="bottleneck")
+        self.bottleneck = UNet._block(features * 8, features * 16, name="bottleneck")
 
-        self.upconv4 = nn.ConvTranspose2d(features * 4, features * 8, kernel_size=2, stride=2)
+        self.upconv4 = nn.ConvTranspose2d(features * 16, features * 8, kernel_size=2, stride=2)
         self.decoder4 = UNet._block((features * 8) * 2, features * 8, name="dec4")
         self.upconv3 = nn.ConvTranspose2d(features * 8, features * 4, kernel_size=2, stride=2)
         self.decoder3 = UNet._block((features * 4) * 2, features * 4, name="dec3")
