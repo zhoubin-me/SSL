@@ -15,7 +15,7 @@ from src.ae.unet import UNet
 from src.ae.unet_no_pyr import UNet as UNetNoPyr
 from src.ae.shallow_net import UNet as ShallowNet
 from src.ae.resnet import ResNetAE
-from src.utils.cifar_few import CIFAR10Few
+from src.utils.util import CIFAR10Few
 
 import os
 import argparse
@@ -34,7 +34,8 @@ class Trainer:
                 transforms.ToTensor(),
             ])
             self.dset_train = CIFAR10Few(self.cfg.dset_root, train=True, download=True, transform=train_transform)
-            self.dset_train.few(self.cfg.few_perc)
+            if self.cfg.task == 'probing':
+                self.dset_train.few(self.cfg.few_perc)
             self.dset_val = CIFAR10(self.cfg.dset_root, train=False, download=True, transform=transforms.ToTensor())
             self.in_size = 32
             self.classes = 10
