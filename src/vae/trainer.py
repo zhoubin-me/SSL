@@ -9,10 +9,11 @@ from torchvision import transforms
 from torchvision.utils import make_grid
 from torch.utils.tensorboard import SummaryWriter
 
-from src.ae.config import Config
 # from src.ae.network import Network
-from src.ae.unet import UNet
-from src.ae.unet_no_pyr import UNet as UNetNoPyr
+from src.vae.config import Config
+from src.vae.unet import UNet
+from src.vae.unet_no_pyr import UNet as UNetNoPyr
+from src.vae.shallow_net import UNet as ShallowNet
 
 import os
 import argparse
@@ -63,9 +64,11 @@ class Trainer:
                                      shuffle=False, num_workers=9, pin_memory=True)
 
         if self.cfg.model == 'unet':
-            self.model = UNet(self.cfg.z_size, self.in_size, self.cfg.blk, self.cfg.loss_fn)
+            self.model = UNet(self.cfg.z_size, self.in_size, self.cfg.blk, self.cfg.loss_fn, self.cfg.kl_tolerance)
         elif self.cfg.model == 'unet_no_pyr':
-            self.model = UNetNoPyr(self.cfg.z_size, self.in_size, self.cfg.blk, self.cfg.loss_fn)
+            self.model = UNetNoPyr(self.cfg.z_size, self.in_size, self.cfg.blk, self.cfg.loss_fn, self.cfg.kl_tolerance)
+        elif self.cfg.model == 'shallow_net':
+            self.model = ShallowNet(self.cfg.z_size, self.in_size, self.cfg.blk, self.cfg.loss_fn, self.cfg.kl_tolerance)
         else:
             raise ValueError("No such model", self.cfg.model)
 
@@ -80,19 +83,24 @@ class Trainer:
         loader = self.train_loader if train else self.val_loader
         prefix = 'train' if train else 'val'
         self.model.train() if train else self.model.eval()
+        # self.model.train()
         losses = 0
         for i, (x, _) in enumerate(tqdm(loader)):
             x = x.cuda()
             if train:
-                _, _, loss = self.model(x)
+                _, _, r_loss, kl_loss = self.model(x)
+                loss = r_loss + kl_loss * self.cfg.kl_factor
                 self.optimizer.zero_grad()
                 loss.backward()
                 self.optimizer.step()
-                self.writer.add_scalar(f"loss/train_batch_end", loss.item(), self.steps)
+                self.writer.add_scalar(f"r_loss/train_batch_end", r_loss.item(), self.steps)
+                self.writer.add_scalar(f"kl_loss/train_batch_end", kl_loss.item(), self.steps)
+                self.writer.add_scalar(f"total_loss/train_batch_end", loss.item(), self.steps)
                 self.steps += 1
             else:
                 with torch.no_grad():
-                    _, _, loss = self.model(x)
+                    _, _, r_loss, kl_loss = self.model(x, sigma=0.1, vae_sigma=self.cfg.vae_sigma)
+                    loss = r_loss + kl_loss * self.cfg.kl_factor
             losses += loss.item()
         losses /= len(loader)
         self.writer.add_scalar(f'loss/{prefix}_epoch_end', losses, self.epoch)
@@ -109,7 +117,6 @@ class Trainer:
                 self.save("best")
             if (epoch + 1) % self.cfg.epoch_ckpt_freq == 0:
                 self.save(f"e{epoch:03d}")
-                self.reconstruct()
             print(f"Epoch {epoch:3d}, Train Loss: {train_loss:6.5f}, Val Loss: {val_loss:6.5f}")
 
     def save(self, fname):
@@ -123,9 +130,11 @@ class Trainer:
             }, f"{self.ckpt}/{fname}.pth.tar"
         )
 
-    def load(self):
-        if os.path.exists(self.cfg.load_ckpt):
-            data = torch.load(self.cfg.load_ckpt)
+    def load(self, ckpt=None):
+        if ckpt is None:
+            ckpt = self.cfg.load_ckpt
+        if os.path.exists(ckpt):
+            data = torch.load(ckpt)
             self.model.module.load_state_dict(data['model'])
             self.optimizer.load_state_dict(data['optimizer'])
         else:
@@ -133,12 +142,12 @@ class Trainer:
 
     def train_val_epoch_probing(self, linear, optimizer, train=True):
         loader = self.train_loader if train else self.val_loader
-        losses, corrects, total = 0, 0, 0
         self.model.eval()
+        losses, corrects, total = 0, 0, 0
         for i, (x, y) in enumerate(loader):
             x, y = x.cuda(), y.cuda()
             with torch.no_grad():
-                z = self.model.module.encode(x.cuda())
+                _, z, _, _ = self.model(x, sigma=0.1, vae_sigma=self.cfg.vae_sigma)
 
             logits = linear(z)
             loss = F.cross_entropy(logits, y)
@@ -157,8 +166,8 @@ class Trainer:
 
     def linear_probing(self):
         x = torch.rand(1, 3, 32, 32).cuda()
-        y = self.model.module.encode(x)
-        N = y.size(1)
+        _, z, _, _ = self.model(x)
+        N = z.size(1)
         linear = nn.Linear(N, self.classes).cuda()
         optimizer = torch.optim.AdamW(linear.parameters())
         for epoch in range(self.cfg.epoch_probing):
@@ -171,7 +180,7 @@ class Trainer:
             print(f"Probing Epoch {epoch:3d}, Train Acc:{train_acc:.4f} Loss:{train_loss:.4f}\t"
                   f"Val Acc: {val_acc:.4f} Loss {val_loss:.4f}")
 
-    def reconstruct(self):
+    def decode(self):
         path = os.path.join("imgs", self.prefix)
         if self.epoch == 0:
             path = os.path.join(path, 'best')
@@ -179,11 +188,11 @@ class Trainer:
             path = os.path.join(path, f'e{self.epoch:03d}')
         if not os.path.exists(path):
             os.makedirs(path)
-
+        self.model.eval()
         for i, (x, _) in enumerate(self.val_loader):
             with torch.no_grad():
                 x = x.cuda()
-                y, _, _ = self.model(x, sigma=0.01)
+                y, _, _, _ = self.model(x, sigma=0.1, vae_sigma=self.cfg.vae_sigma)
             z = torch.cat((x, y), dim=2)
             img = make_grid(z[:25], 5)
             img = transforms.functional.to_pil_image(img)
@@ -194,13 +203,14 @@ class Trainer:
     def tsne(self):
         data = []
         for idx, (x, y) in enumerate(self.val_loader):
-            z = self.model.module.encode(x.cuda())
-            data.append((z.cpu(), y))
+            with torch.no_grad():
+                _, z, _, _ = self.model(x.cuda(), sigma=0.1, vae_sigma=self.cfg.vae_sigma)
+                data.append((z.cpu(), y))
             if idx > 10:
                 break
 
         xx = torch.cat(list(x[0] for x in data), dim=0)
-        yy = torch.cat(list(x[1] for x in data), dim=1)
+        yy = torch.cat(list(x[1] for x in data), dim=0)
         xx = xx.view(xx.size(0), -1)
 
         tsne = TSNE(n_components=2, verbose=True, perplexity=40, n_iter=1000, learning_rate='auto')
@@ -208,10 +218,7 @@ class Trainer:
 
         plt.figure(figsize=(12, 8))
         plt.scatter(xxx[:, 0], xxx[:, 1], c=yy, cmap=plt.cm.get_cmap('Set1'))
-        path = os.path.join("imgs", self.prefix)
-        if not os.path.exists(path):
-            os.mkdir(path)
-        plt.savefig(os.path.join(path, 'tsne.png'))
+        plt.savefig(f"imgs/{self.prefix}.png")
 
     def run(self):
         if self.cfg.task == 'train':
@@ -226,7 +233,7 @@ class Trainer:
             self.tsne()
         elif self.cfg.task == 'decode':
             self.load()
-            self.reconstruct()
+            self.decode()
         else:
             raise ValueError("No such task", self.cfg.task)
 

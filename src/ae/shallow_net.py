@@ -19,40 +19,34 @@ class UNet(nn.Module):
             self.out_c = out_channels[loss_fn]
         except:
             raise ValueError("No such loss function", loss_fn)
-        self.encoder1 = UNet._block(3, features, name="enc1")
-        self.encoder2 = UNet._block(features, features * 2, name="enc2")
-        self.encoder3 = UNet._block(features * 2, features * 4, name="enc3")
-        self.encoder4 = UNet._block(features * 4, features * 8, name="enc4")
-        self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
-        self.bottleneck = UNet._block(features * 8, features * 4, name="bottleneck")
 
-        self.upconv4 = nn.ConvTranspose2d(features * 4, features * 8, kernel_size=2, stride=2)
-        self.decoder4 = UNet._block((features * 8), features * 8, name="dec4")
-        self.upconv3 = nn.ConvTranspose2d(features * 8, features * 4, kernel_size=2, stride=2)
-        self.decoder3 = UNet._block((features * 4), features * 4, name="dec3")
-        self.upconv2 = nn.ConvTranspose2d(features * 4, features * 2, kernel_size=2, stride=2)
-        self.decoder2 = UNet._block((features * 2), features * 2, name="dec2")
-        self.upconv1 = nn.ConvTranspose2d(features * 2, features, kernel_size=2, stride=2)
-        self.decoder1 = UNet._block(features, features, name="dec1")
+        self.encoder = nn.Sequential(
+            nn.Conv2d(3, 32, 4, 2),
+            nn.ReLU(True),
+            nn.Conv2d(32, 64, 4, 2),
+            nn.ReLU(True),
+            nn.Conv2d(64, 128, 4, 2),
+            nn.Flatten()
+        )
 
-        self.conv = nn.Conv2d(in_channels=features, out_channels=self.out_c, kernel_size=1)
+        # (N, 128 * 4, 1, 1) -> (N, 3, 32, 32)
+        self.decoder = nn.Sequential(
+            nn.ConvTranspose2d(128 * 4, 64, 3, 2),
+            nn.ReLU(True),
+            nn.ConvTranspose2d(64, 32, 3, 2),
+            nn.ReLU(True),
+            nn.ConvTranspose2d(32, 16, 3, 2),
+            nn.ReLU(True),
+            nn.ConvTranspose2d(16, self.out_c, 4, 2),
+        )
+
+        self.h = nn.Linear(128 * 4, 128)
+        self.dh = nn.Linear(128, 128 * 4)
 
     def forward(self, x, sigma=1.0):
-        enc1 = self.encoder1(x)
-        enc2 = self.encoder2(self.pool(enc1))
-        enc3 = self.encoder3(self.pool(enc2))
-        enc4 = self.encoder4(self.pool(enc3))
-        z = self.bottleneck(self.pool(enc4))
-
-        dec4 = self.upconv4(z)
-        dec4 = self.decoder4(dec4)
-        dec3 = self.upconv3(dec4)
-        dec3 = self.decoder3(dec3)
-        dec2 = self.upconv2(dec3)
-        dec2 = self.decoder2(dec2)
-        dec1 = self.upconv1(dec2)
-        dec1 = self.decoder1(dec1)
-        out = self.conv(dec1)
+        z = self.h(self.encoder(x))
+        zh = rearrange(self.dh(z), 'b n -> b n 1 1')
+        out = self.decoder(zh)
 
         if self.loss_fn == 'mse':
             y = F.sigmoid(out)
@@ -86,12 +80,7 @@ class UNet(nn.Module):
         return y, z, loss
 
     def encode(self, x):
-        enc1 = self.encoder1(x)
-        enc2 = self.encoder2(self.pool(enc1))
-        enc3 = self.encoder3(self.pool(enc2))
-        enc4 = self.encoder4(self.pool(enc3))
-        z = self.bottleneck(self.pool(enc4))
-        z = z.flatten(1)
+        z = self.h(self.encoder(x))
         return z
 
     @staticmethod

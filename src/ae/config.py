@@ -3,7 +3,6 @@ from dataclasses import dataclass
 @dataclass
 class Config:
     lr: float = 0.001
-    kl_factor: float = 0.1
     z_size: int = 128
     blk: str = 'basic'
     model: str = 'unet'

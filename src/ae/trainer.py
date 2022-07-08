@@ -13,6 +13,7 @@ from src.ae.config import Config
 # from src.ae.network import Network
 from src.ae.unet import UNet
 from src.ae.unet_no_pyr import UNet as UNetNoPyr
+from src.ae.shallow_net import UNet as ShallowNet
 
 import os
 import argparse
@@ -66,6 +67,8 @@ class Trainer:
             self.model = UNet(self.cfg.z_size, self.in_size, self.cfg.blk, self.cfg.loss_fn)
         elif self.cfg.model == 'unet_no_pyr':
             self.model = UNetNoPyr(self.cfg.z_size, self.in_size, self.cfg.blk, self.cfg.loss_fn)
+        elif self.cfg.model == 'shallow_net':
+            self.model = ShallowNet(self.cfg.z_size, self.in_size, self.cfg.blk, self.cfg.loss_fn)
         else:
             raise ValueError("No such model", self.cfg.model)
 
@@ -80,6 +83,7 @@ class Trainer:
         loader = self.train_loader if train else self.val_loader
         prefix = 'train' if train else 'val'
         self.model.train() if train else self.model.eval()
+        # self.model.train()
         losses = 0
         for i, (x, _) in enumerate(tqdm(loader)):
             x = x.cuda()
@@ -139,7 +143,7 @@ class Trainer:
         for i, (x, y) in enumerate(loader):
             x, y = x.cuda(), y.cuda()
             with torch.no_grad():
-                z = self.model.module.encode(x.cuda())
+                _, z, _ = self.model(x)
 
             logits = linear(z)
             loss = F.cross_entropy(logits, y)
@@ -158,8 +162,8 @@ class Trainer:
 
     def linear_probing(self):
         x = torch.rand(1, 3, 32, 32).cuda()
-        y = self.model.module.encode(x)
-        N = y.size(1)
+        _, z, _ = self.model(x)
+        N = z.size(1)
         linear = nn.Linear(N, self.classes).cuda()
         optimizer = torch.optim.AdamW(linear.parameters())
         for epoch in range(self.cfg.epoch_probing):
@@ -184,7 +188,7 @@ class Trainer:
         for i, (x, _) in enumerate(self.val_loader):
             with torch.no_grad():
                 x = x.cuda()
-                y, _, _ = self.model(x, sigma=0.01)
+                y, _, _ = self.model(x, sigma=0.1)
             z = torch.cat((x, y), dim=2)
             img = make_grid(z[:25], 5)
             img = transforms.functional.to_pil_image(img)
@@ -196,7 +200,7 @@ class Trainer:
         data = []
         for idx, (x, y) in enumerate(self.val_loader):
             with torch.no_grad():
-                z = self.model.module.encode(x.cuda())
+                _, z, _ = self.model(x, sigma=0.1)
                 data.append((z.cpu(), y))
             if idx > 10:
                 break
