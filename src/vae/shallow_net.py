@@ -5,7 +5,7 @@ from torch.distributions import Normal, MixtureSameFamily, Independent, Categori
 from einops import rearrange
 
 class UNet(nn.Module):
-    def __init__(self, z_size=128, in_size=32, blk='basic', loss_fn='mse', kl_tolerance=0.5):
+    def __init__(self, z_size=128, in_size=32, loss_fn='mse', kl_tolerance=0.5):
         super(UNet, self).__init__()
         self.z_size = z_size
         self.kl_tolerance = kl_tolerance
@@ -87,22 +87,6 @@ class UNet(nn.Module):
         z = z.flatten(1)
         return y, z, loss, kl_loss
 
-    def encode(self, x, sigma=1.0):
-        z = self.h(self.encoder(x))
-        mu = z[:, :self.z_size]
-        log_var = z[:, self.z_size:]
-        dist = Normal(mu, log_var.exp() * sigma)
-        return dist.sample()
 
-    @staticmethod
-    def _block(in_channels, features, name=None):
-        return nn.Sequential(
-            nn.Conv2d(in_channels, features, 3, 1, 1, bias=False),
-            nn.BatchNorm2d(features),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(features, features, 3, 1, 1, bias=False),
-            nn.BatchNorm2d(features),
-            nn.ReLU(inplace=True)
-        )
 
 

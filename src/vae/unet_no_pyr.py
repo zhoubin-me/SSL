@@ -8,7 +8,7 @@ from src.utils.util import get_loss
 
 
 class UNet(nn.Module):
-    def __init__(self, z_size=128, in_size=32, blk='basic', loss_fn='mse', kl_tolerance=0.5):
+    def __init__(self, z_size=128, in_size=32, loss_fn='mse', kl_tolerance=0.5):
         super(UNet, self).__init__()
         features = 8
         out_channels = {
@@ -76,15 +76,6 @@ class UNet(nn.Module):
 
         z = z.flatten(1)
         return y, z, loss, kl_loss
-
-    def encode(self, x):
-        enc1 = self.encoder1(x)
-        enc2 = self.encoder2(self.pool(enc1))
-        enc3 = self.encoder3(self.pool(enc2))
-        enc4 = self.encoder4(self.pool(enc3))
-        z = self.bottleneck(self.pool(enc4))
-        z = z.flatten(1)
-        return z
 
     @staticmethod
     def _block(in_channels, features, name=None):

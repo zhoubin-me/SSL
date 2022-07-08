@@ -8,7 +8,7 @@ from src.utils.util import get_loss
 
 
 class UNet(nn.Module):
-    def __init__(self, z_size=128, in_size=32, blk='basic', loss_fn='mse', kl_tolerance=0.5):
+    def __init__(self, z_size=128, in_size=32, loss_fn='mse', kl_tolerance=0.5):
         super(UNet, self).__init__()
         features = 8
 

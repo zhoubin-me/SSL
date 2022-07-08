@@ -8,9 +8,9 @@ from einops import rearrange
 from src.utils.util import get_loss
 
 
-class ResVAE(nn.Module):
-    def __init__(self, z_size=128, loss_fn='mse'):
-        super(ResVAE, self).__init__()
+class ResNetAE(nn.Module):
+    def __init__(self, z_size=128, in_size=32, loss_fn='mse'):
+        super(ResNetAE, self).__init__()
         self.z_size = z_size
         out_channels = {
             'mse': 3,
@@ -38,7 +38,6 @@ class ResVAE(nn.Module):
         self.h = nn.Linear(8192, self.z_size)
 
         self.dh = nn.Linear(self.z_size, 8192)
-
         self.decoder = nn.Sequential(
             nn.ConvTranspose2d(512, 256, 2, 2),
             nn.ReLU(True),
@@ -47,12 +46,11 @@ class ResVAE(nn.Module):
             nn.ConvTranspose2d(128, self.out_c, 2, 2),
         )
 
-
-
     def forward(self, x, sigma=1.0):
         z = self.h(self.encoder(x))
         dz = rearrange(self.dh(z), 'b (n h w) -> b n h w', h=4, w=4)
         out = self.decoder(dz)
         y, loss = get_loss(x, out, self.loss_fn, sigma)
         return y, z, loss
+
 

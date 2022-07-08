@@ -14,6 +14,7 @@ from src.vae.config import Config
 from src.vae.unet import UNet
 from src.vae.unet_no_pyr import UNet as UNetNoPyr
 from src.vae.shallow_net import UNet as ShallowNet
+from src.vae.resnet import ResNetVAE
 from src.utils.cifar_few import CIFAR10Few
 
 import os
@@ -66,20 +67,24 @@ class Trainer:
                                      shuffle=False, num_workers=9, pin_memory=True)
 
         if self.cfg.model == 'unet':
-            self.model = UNet(self.cfg.z_size, self.in_size, self.cfg.blk, self.cfg.loss_fn, self.cfg.kl_tolerance)
+            Model = UNet
         elif self.cfg.model == 'unet_no_pyr':
-            self.model = UNetNoPyr(self.cfg.z_size, self.in_size, self.cfg.blk, self.cfg.loss_fn, self.cfg.kl_tolerance)
+            Model = UNetNoPyr
         elif self.cfg.model == 'shallow_net':
-            self.model = ShallowNet(self.cfg.z_size, self.in_size, self.cfg.blk, self.cfg.loss_fn, self.cfg.kl_tolerance)
+            Model = ShallowNet
+        elif self.cfg.model == 'resnet':
+            Model = ResNetVAE
         else:
             raise ValueError("No such model", self.cfg.model)
 
+        self.model = Model(self.cfg.z_size, self.in_size, self.cfg.loss_fn, self.cfg.kl_tolerance)
         self.model = nn.DataParallel(self.model).cuda()
         self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=self.cfg.lr)
         self.prefix = f"{self.cfg.prefix}_{self.cfg.loss_fn}_{self.cfg.task}_{self.cfg.dset}_{self.cfg.model}"
         self.ckpt = f"ckpt/{self.prefix}"
         self.epoch = 0
         self.steps = 0
+        self.best_val_loss = np.Inf
 
     def train_val_epoch(self, train=False):
         loader = self.train_loader if train else self.val_loader
@@ -114,8 +119,8 @@ class Trainer:
             self.epoch = epoch
             train_loss = self.train_val_epoch(True)
             val_loss = self.train_val_epoch(False)
-            if val_loss < best_val_loss:
-                best_val_loss = val_loss
+            if val_loss < self.best_val_loss:
+                self.best_val_loss = val_loss
                 self.save("best")
             if (epoch + 1) % self.cfg.epoch_ckpt_freq == 0:
                 self.save(f"e{epoch:03d}")
@@ -127,6 +132,7 @@ class Trainer:
         torch.save(
             {
                 "epoch": self.epoch,
+                "best_val_loss": self.best_val_loss,
                 "model": self.model.module.state_dict(),
                 "optimizer": self.optimizer.state_dict(),
             }, f"{self.ckpt}/{fname}.pth.tar"
