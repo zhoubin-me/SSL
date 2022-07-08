@@ -90,8 +90,8 @@ class Trainer:
         loader = self.train_loader if train else self.val_loader
         prefix = 'train' if train else 'val'
         self.model.train() if train else self.model.eval()
-        # self.model.train()
         losses = 0
+        kl_losses = 0
         for i, (x, _) in enumerate(tqdm(loader)):
             x = x.cuda()
             if train:
@@ -106,25 +106,27 @@ class Trainer:
                 self.steps += 1
             else:
                 with torch.no_grad():
-                    _, _, r_loss, kl_loss = self.model(x, sigma=0.1, vae_sigma=self.cfg.vae_sigma)
+                    _, _, r_loss, kl_loss = self.model(x, sigma=0.1, vae_sigma=0.1)
                     loss = r_loss + kl_loss * self.cfg.kl_factor
             losses += loss.item()
+            kl_losses += kl_loss.item()
         losses /= len(loader)
+        kl_losses /= len(loader)
         self.writer.add_scalar(f'loss/{prefix}_epoch_end', losses, self.epoch)
-        return losses
+        return losses, kl_losses
 
     def train(self, start_epoch=0):
-        best_val_loss = np.Inf
         for epoch in range(start_epoch, self.cfg.epoch):
             self.epoch = epoch
-            train_loss = self.train_val_epoch(True)
-            val_loss = self.train_val_epoch(False)
+            train_loss, train_kl_loss = self.train_val_epoch(True)
+            val_loss, val_kl_loss = self.train_val_epoch(False)
             if val_loss < self.best_val_loss:
                 self.best_val_loss = val_loss
                 self.save("best")
             if (epoch + 1) % self.cfg.epoch_ckpt_freq == 0:
                 self.save(f"e{epoch:03d}")
-            print(f"Epoch {epoch:3d}, Train Loss: {train_loss:6.5f}, Val Loss: {val_loss:6.5f}")
+            print(f"Epoch {epoch:3d}, Train Loss: {train_loss:6.5f}, Val Loss: {val_loss:6.5f}, "
+                  f"Train KL Loss: {train_kl_loss:6.5f}, Val KL Loss: {val_kl_loss:6.5f}")
 
     def save(self, fname):
         if not os.path.exists(self.ckpt):
@@ -210,6 +212,7 @@ class Trainer:
 
     def tsne(self):
         data = []
+        self.model.eval()
         for idx, (x, y) in enumerate(self.val_loader):
             with torch.no_grad():
                 _, z, _, _ = self.model(x.cuda(), sigma=0.1, vae_sigma=self.cfg.vae_sigma)

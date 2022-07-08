@@ -204,6 +204,7 @@ class Trainer:
 
     def tsne(self):
         data = []
+        self.model.eval()
         for idx, (x, y) in enumerate(self.val_loader):
             with torch.no_grad():
                 _, z, _ = self.model(x, sigma=0.1)
