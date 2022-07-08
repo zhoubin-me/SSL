@@ -14,6 +14,7 @@ from src.ae.config import Config
 from src.ae.unet import UNet
 from src.ae.unet_no_pyr import UNet as UNetNoPyr
 from src.ae.shallow_net import UNet as ShallowNet
+from src.utils.cifar_few import CIFAR10Few
 
 import os
 import argparse
@@ -31,7 +32,8 @@ class Trainer:
                 transforms.RandomVerticalFlip(),
                 transforms.ToTensor(),
             ])
-            self.dset_train = CIFAR10(self.cfg.dset_root, train=True, download=True, transform=train_transform)
+            self.dset_train = CIFAR10Few(self.cfg.dset_root, train=True, download=True, transform=train_transform)
+            self.dset_train.few(self.cfg.few_perc)
             self.dset_val = CIFAR10(self.cfg.dset_root, train=False, download=True, transform=transforms.ToTensor())
             self.in_size = 32
             self.classes = 10
@@ -64,11 +66,11 @@ class Trainer:
                                      shuffle=False, num_workers=9, pin_memory=True)
 
         if self.cfg.model == 'unet':
-            self.model = UNet(self.cfg.z_size, self.in_size, self.cfg.blk, self.cfg.loss_fn)
+            self.model = UNet(self.cfg.z_size, self.in_size, self.cfg.loss_fn)
         elif self.cfg.model == 'unet_no_pyr':
-            self.model = UNetNoPyr(self.cfg.z_size, self.in_size, self.cfg.blk, self.cfg.loss_fn)
+            self.model = UNetNoPyr(self.cfg.z_size, self.in_size, self.cfg.loss_fn)
         elif self.cfg.model == 'shallow_net':
-            self.model = ShallowNet(self.cfg.z_size, self.in_size, self.cfg.blk, self.cfg.loss_fn)
+            self.model = ShallowNet(self.cfg.z_size, self.in_size, self.cfg.loss_fn)
         else:
             raise ValueError("No such model", self.cfg.model)
 

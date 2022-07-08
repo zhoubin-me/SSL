@@ -4,6 +4,7 @@ from dataclasses import dataclass
 class Config:
     lr: float = 0.001
     z_size: int = 128
+    few_perc: float = 1.0
     blk: str = 'basic'
     model: str = 'unet'
     dset: str = 'cifar10'

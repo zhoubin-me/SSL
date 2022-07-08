@@ -14,6 +14,7 @@ from src.vae.config import Config
 from src.vae.unet import UNet
 from src.vae.unet_no_pyr import UNet as UNetNoPyr
 from src.vae.shallow_net import UNet as ShallowNet
+from src.utils.cifar_few import CIFAR10Few
 
 import os
 import argparse
@@ -31,7 +32,8 @@ class Trainer:
                 transforms.RandomVerticalFlip(),
                 transforms.ToTensor(),
             ])
-            self.dset_train = CIFAR10(self.cfg.dset_root, train=True, download=True, transform=train_transform)
+            self.dset_train = CIFAR10Few(self.cfg.dset_root, train=True, download=True, transform=train_transform)
+            self.dset_train.few(self.cfg.few_perc)
             self.dset_val = CIFAR10(self.cfg.dset_root, train=False, download=True, transform=transforms.ToTensor())
             self.in_size = 32
             self.classes = 10
