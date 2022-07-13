@@ -33,9 +33,11 @@ class Trainer:
                 transforms.RandomVerticalFlip(),
                 transforms.ToTensor(),
             ])
-            self.dset_train = CIFAR10Few(self.cfg.dset_root, train=True, download=True, transform=train_transform)
             if self.cfg.task == 'probing':
+                self.dset_train = CIFAR10Few(self.cfg.dset_root, train=True, download=True, transform=train_transform)
                 self.dset_train.few(self.cfg.few_perc)
+            else:
+                self.dset_train = CIFAR10(self.cfg.dset_root, train=True, download=True, transform=train_transform)
             self.dset_val = CIFAR10(self.cfg.dset_root, train=False, download=True, transform=transforms.ToTensor())
             self.in_size = 32
             self.classes = 10
