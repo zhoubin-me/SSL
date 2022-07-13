@@ -1,4 +1,5 @@
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 from torch.distributions import Categorical, Independent, MixtureSameFamily, Normal
 
@@ -27,7 +28,7 @@ def get_loss(x, out, loss_fn, sigma):
     elif loss_fn == 'gmm':
         out = rearrange(out, 'b (c n) h w -> (b c h w) n', c=3)
         mix = Categorical(logits=out[:, :3])
-        comp = Independent(Normal(out[:, 3:6].unsqueeze(-1), out[:, 6:9].unsqueeze(-1).clamp(-3, 3).exp() * sigma), 1)
+        comp = Independent(Normal(out[:, 3:6].unsqueeze(-1), out[:, 6:9].clamp(-3, 3).unsqueeze(-1).exp() * sigma), 1)
         gmm = MixtureSameFamily(mix, comp)
         loss = gmm.log_prob(2 * x.view(-1).unsqueeze(-1) - 1).mean().neg()
         y = gmm.sample()

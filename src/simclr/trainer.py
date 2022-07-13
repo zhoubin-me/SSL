@@ -2,7 +2,7 @@ import torch
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from torchvision.transforms import transforms
-
+from torchvision.models import resnet
 from src.simclr.config import Config
 from src.simclr.resnet import ResNet
 from src.utils.util import CIFAR10Pair
@@ -12,7 +12,7 @@ from tqdm import tqdm
 import os
 
 
-class SimCLR:
+class Trainer:
     def __init__(self, **kwargs):
         self.cfg = Config(**kwargs)
 
@@ -33,23 +33,28 @@ class SimCLR:
                 transforms.Normalize(mean, std)
             ])
             drop_last = self.cfg.task == 'train'
-            self.train_data = CIFAR10Pair(root='data', train=True, transform=train_transform, download=True)
+            self.train_data = CIFAR10Pair(root=self.cfg.dset_root, train=True, transform=train_transform, download=True)
             self.train_loader = DataLoader(self.train_data, batch_size=self.cfg.batch_size, shuffle=True, num_workers=16,
                                            pin_memory=True, drop_last=drop_last)
 
-            self.memory_data = CIFAR10Pair(root='data', train=True, transform=test_transform, download=True)
+            self.memory_data = CIFAR10Pair(root=self.cfg.dset_root, train=True, transform=test_transform, download=True)
             self.memory_loader = DataLoader(self.memory_data, batch_size=self.cfg.batch_size, shuffle=False,
                                             num_workers=16,
                                             pin_memory=True)
 
-            self.test_data = CIFAR10Pair(root='data', train=False, transform=test_transform, download=True)
+            self.test_data = CIFAR10Pair(root=self.cfg.dset_root, train=False, transform=test_transform, download=True)
             self.test_loader = DataLoader(self.test_data, batch_size=self.cfg.batch_size, shuffle=False, num_workers=16,
                                           pin_memory=True)
             self.classes = 10
 
-        self.model = ResNet(self.cfg.z_size)
+        try:
+            net = getattr(resnet, self.cfg.model)()
+        except:
+            raise ValueError("No such network")
+
+        self.model = ResNet(net, self.cfg.z_size)
         self.model = torch.nn.DataParallel(self.model).cuda()
-        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=1e-3, weight_decay=1e-6)
+        self.optimizer = torch.optim.Adam(self.model.parameters())
         self.prefix = f"{self.cfg.prefix}_{self.cfg.task}_{self.cfg.dset}"
         self.ckpt = f"ckpt/{self.prefix}"
         self.epoch = 0
@@ -83,6 +88,7 @@ class SimCLR:
             self.steps += 1
             losses += loss.item()
             self.writer.add_scalar("loss/train_batch_end", loss.item(), self.epoch * len(loader) + idx)
+
         N = len(loader) - 1 if len(loader) > 1 else 1
         losses /= N
         return losses
@@ -123,7 +129,6 @@ class SimCLR:
                 pred_labels = pred_scores.argsort(dim=-1, descending=True)
                 corrects += torch.sum((pred_labels[:, :1] == target.unsqueeze(dim=-1)).any(dim=-1).float()).item()
             accuracy = corrects / total_num
-            print("Epoch", self.epoch, "Accuracy", accuracy)
 
         return accuracy
 
@@ -132,6 +137,8 @@ class SimCLR:
             self.epoch = epoch
             train_loss = self.train_epoch()
             val_acc = self.knn()
+            self.writer.add_scalar('loss/train_epoch_end', train_loss, epoch)
+            self.writer.add_scalar('accuracy/knn_val', val_acc, epoch)
             if val_acc > self.best_val_acc:
                 self.best_val_acc = val_acc
                 self.save("best")

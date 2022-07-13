@@ -3,12 +3,12 @@ from dataclasses import dataclass
 @dataclass
 class Config:
     lr: float = 0.001
+    model: str = 'resnet50'
     z_size: int = 128
-    few_perc: float = 1.0
     dset: str = 'cifar10'
     dset_root: str = 'dataset'
-    batch_size: int = 128
-    epoch: int = 200
+    batch_size: int = 1024
+    epoch: int = 1000
     epoch_probing: int = 100
     epoch_ckpt_freq: int = 10
     prefix: str = "simclr"
