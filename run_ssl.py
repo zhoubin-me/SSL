@@ -6,7 +6,8 @@ def main():
     from src.simclr.config import Config
 
     cfg = Config()
-    cfg.task = 'train'
+    cfg.load_ckpt = f"ckpt/simclr_train_cifar10/best.pth.tar"
+    cfg.task = 'probing'
     trainer = Trainer(**cfg.__dict__)
     trainer.run()
 
