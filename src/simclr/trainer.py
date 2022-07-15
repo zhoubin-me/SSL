@@ -1,4 +1,6 @@
 import torch
+import torch.nn as nn
+import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from torchvision.transforms import transforms
@@ -50,7 +52,7 @@ class Trainer:
         try:
             net = getattr(resnet, self.cfg.model)()
         except:
-            raise ValueError("No such network")
+            raise ValueError("No such network", self.cfg.model)
 
         self.model = ResNet(net, self.cfg.z_size)
         self.model = torch.nn.DataParallel(self.model).cuda()
@@ -167,10 +169,41 @@ class Trainer:
             raise ValueError("No such path", self.cfg.load_ckpt)
 
     def train_val_epoch_probing(self, linear, optimizer, train=True):
-        pass
+        loader = self.train_loader if train else self.test_loader
+        losses, corrects, total = 0, 0, 0
+        self.model.eval()
+        for i, (x, _, y) in enumerate(loader):
+            x, y = x.cuda(), y.cuda()
+            with torch.no_grad():
+                z = self.model.module.f(x)
+            logits = linear(z)
+            loss = F.cross_entropy(logits, y)
+
+            if train:
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+
+            corrects += torch.sum((logits.argmax(dim=-1) == y).float()).item()
+            losses += loss.item()
+            total += x.size(0)
+        loss = losses / len(loader)
+        accuracy = corrects / total
+        return loss, accuracy
 
     def linear_probing(self):
-        pass
+        x = torch.rand(1, 3, 32, 32).cuda()
+        linear = nn.Linear(self.cfg.z_size, self.classes).cuda()
+        optimizer = torch.optim.AdamW(linear.parameters())
+        for epoch in range(self.cfg.epoch_probing):
+            train_loss, train_acc = self.train_val_epoch_probing(linear, optimizer, train=True)
+            val_loss, val_acc = self.train_val_epoch_probing(linear, optimizer, train=False)
+            self.writer.add_scalar(f'loss/train_epoch_end', train_loss, epoch)
+            self.writer.add_scalar(f'accuracy/train_epoch_end', train_acc, epoch)
+            self.writer.add_scalar(f'loss/val_epoch_end', val_loss, epoch)
+            self.writer.add_scalar(f'accuracy/val_epoch_end', val_acc, epoch)
+            print(f"Probing Epoch {epoch:3d}, Train Acc:{train_acc:.4f} Loss:{train_loss:.4f}\t"
+                  f"Val Acc: {val_acc:.4f} Loss {val_loss:.4f}")
 
     def tsne(self):
         pass

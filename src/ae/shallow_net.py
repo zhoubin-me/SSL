@@ -55,16 +55,3 @@ class UNet(nn.Module):
     def encode(self, x):
         z = self.h(self.encoder(x))
         return z
-
-    @staticmethod
-    def _block(in_channels, features, name=None):
-        return nn.Sequential(
-            nn.Conv2d(in_channels, features, 3, 1, 1, bias=False),
-            nn.BatchNorm2d(features),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(features, features, 3, 1, 1, bias=False),
-            nn.BatchNorm2d(features),
-            nn.ReLU(inplace=True)
-        )
-
-

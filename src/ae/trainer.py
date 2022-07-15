@@ -16,6 +16,7 @@ from src.ae.unet_no_pyr import UNet as UNetNoPyr
 from src.ae.shallow_net import UNet as ShallowNet
 from src.ae.resnet import ResNetAE
 from src.utils.util import CIFAR10Few
+from src.utils.mmap_loader import NPDataset
 
 import os
 import argparse
@@ -41,6 +42,18 @@ class Trainer:
             self.dset_val = CIFAR10(self.cfg.dset_root, train=False, download=True, transform=transforms.ToTensor())
             self.in_size = 32
             self.classes = 10
+        elif self.cfg.dset == 'seismic':
+
+            train_transform = transforms.Compose([
+                transforms.ToTensor()
+            ])
+
+            self.dset_train = NPDataset(self.cfg.dset_root,
+                                        roi=((590, 1190), (2060, 3450), (1060, 1400)),
+                                        tsize=(16, 16, 16),
+                                        shape=(4775, 6514, 1876, 64),
+                                        transform=train_transform)
+            self.dset_val = self.dset_train
 
         elif self.cfg.dset == 'celeba':
             train_transform = transforms.Compose([
